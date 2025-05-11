@@ -9,6 +9,7 @@
 #include <boost/log/trivial.hpp>
 #include <boost/program_options.hpp>
 #include <boost/range/iterator_range.hpp>
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -62,7 +63,9 @@ boost::program_options::variables_map parse_arguments( int argc, char** argv ) {
       "dfg", boost::program_options::value<std::string>()->required(),
       "Data flow graphml file." )( "cfg", boost::program_options::value<std::string>(), "Control flow graphml file." )(
       "name", boost::program_options::value<std::string>()->default_value( "Demonstrator", "Name of the workflow." ) )(
-      "dry-run", boost::program_options::bool_switch(), "Dry run. Build but don't run the execution graph." );
+      "dry-run", boost::program_options::bool_switch(), "Dry run. Build but don't run the execution graph." )(
+      "trials", boost::program_options::value<unsigned int>()->default_value( 1 ), "Number of repeats" )(
+      "save-timing", boost::program_options::value<std::string>(), "Save the timing results to a CSV file." );
 
   auto desc_runtime = boost::program_options::options_description( "Runtime" );
   desc_runtime.add_options()(
@@ -71,12 +74,14 @@ boost::program_options::variables_map parse_arguments( int argc, char** argv ) {
                                      "Number of events to be processed." )(
       "slots", boost::program_options::value<unsigned int>()->default_value( 1 ), "Number of concurrent event slots." );
 
-  auto desc_trace = boost::program_options::options_description( "Trace" );
-  desc_trace.add_options()( "logs-tfp", boost::program_options::value<std::string>(),
+  auto desc_trace = boost::program_options::options_description( "Logging and trace" );
+  desc_trace.add_options()( "trace-tfp", boost::program_options::value<std::string>(),
                             "Output the execution logs as a TFProf trace. Must be a json or tfp file." )(
-      "logs-trace", boost::program_options::value<std::string>(), "Output the execution logs as a chrome trace. Must be a json file." )(
+      "trace-chrome", boost::program_options::value<std::string>(),
+      "Output the execution logs as a chrome trace. Must be a json file." )(
       "dump-plan", boost::program_options::bool_switch(), "Write execution plan to files named {name}.dot." )(
-      "fast-calibrate", boost::program_options::bool_switch(), "Calibrate CPUCrunching on smaller sample." );
+      "fast-calibrate", boost::program_options::bool_switch(), "Calibrate CPUCrunching on smaller sample." )(
+      "disable-logging", boost::program_options::bool_switch(), "Disable printing logging information." );
 
   boost::program_options::options_description cmdline_options{ "Options" };
   cmdline_options.add( desc ).add( desc_runtime ).add( desc_trace );
@@ -155,7 +160,27 @@ int main( int argc, char** argv ) {
   core_task.precede( final_task );
 
   if ( !vm["dry-run"].as<bool>() ) {
-    executor.run( master_flow ).wait();
+    const auto trials  = vm["trials"].as<unsigned int>();
+    auto       timings = std::vector<double>( trials );
+    for ( auto i = 0; i < trials; ++i ) {
+      auto start_time = std::chrono::high_resolution_clock::now();
+      executor.run( master_flow ).wait();
+      auto end_time        = std::chrono::high_resolution_clock::now();
+      auto elapsed_seconds = std::chrono::duration<double>( end_time - start_time ).count();
+      pipeline.reset();
+      std::cout << "Execution time: " << elapsed_seconds << " s (Throughput: " << max_events / elapsed_seconds
+                << " evt/s)" << std::endl;
+      timings[i] = elapsed_seconds;
+    }
+    if ( vm.count( "save-timing" ) ) {
+      auto timing_file_name = vm["save-timing"].as<std::string>();
+      auto timing_file      = std::ofstream{ timing_file_name };
+      timing_file << "time,throughput,threads,event_count,max_concurrent" << std::endl;
+      for ( const auto& t : timings ) {
+        timing_file << t << "," << max_events / t << "," << threads << "," << max_events << "," << slots << std::endl;
+      }
+      std::cout << "Timing results saved to file: \"" << timing_file_name << '\"' << std::endl;
+    }
 
     if ( chrome_observer ) {
       auto trace_file_name = vm["trace-chrome"].as<std::string>();

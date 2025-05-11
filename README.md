@@ -10,6 +10,8 @@ The project has following dependencies:
 - boost
     - program_options - used for the entry-point application
     - graph -  used when scheduling mockups workflows for reading workflow description stored in GraphML file
+    - log - used for configurable printouts
+
 ## Getting started
 
 Building:
