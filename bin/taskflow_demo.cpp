@@ -4,8 +4,12 @@
 #include "taskflow/algorithm/pipeline.hpp"
 #include "taskflow/core/taskflow.hpp"
 #include <boost/graph/adjacency_list.hpp>
+#include <boost/log/core.hpp>
+#include <boost/log/expressions.hpp>
+#include <boost/log/trivial.hpp>
 #include <boost/program_options.hpp>
 #include <boost/range/iterator_range.hpp>
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -59,7 +63,9 @@ boost::program_options::variables_map parse_arguments( int argc, char** argv ) {
       "dfg", boost::program_options::value<std::string>()->required(),
       "Data flow graphml file." )( "cfg", boost::program_options::value<std::string>(), "Control flow graphml file." )(
       "name", boost::program_options::value<std::string>()->default_value( "Demonstrator", "Name of the workflow." ) )(
-      "dry-run", boost::program_options::bool_switch(), "Dry run. Build but don't run the execution graph." );
+      "dry-run", boost::program_options::bool_switch(), "Dry run. Build but don't run the execution graph." )(
+      "trials", boost::program_options::value<unsigned int>()->default_value( 1 ), "Number of repeats" )(
+      "save-timing", boost::program_options::value<std::string>(), "Save the timing results to a CSV file." );
 
   auto desc_runtime = boost::program_options::options_description( "Runtime" );
   desc_runtime.add_options()(
@@ -68,12 +74,14 @@ boost::program_options::variables_map parse_arguments( int argc, char** argv ) {
                                      "Number of events to be processed." )(
       "slots", boost::program_options::value<unsigned int>()->default_value( 1 ), "Number of concurrent event slots." );
 
-  auto desc_trace = boost::program_options::options_description( "Trace" );
-  desc_trace.add_options()( "logs-tfp", boost::program_options::value<std::string>(),
+  auto desc_trace = boost::program_options::options_description( "Logging and trace" );
+  desc_trace.add_options()( "trace-tfp", boost::program_options::value<std::string>(),
                             "Output the execution logs as a TFProf trace. Must be a json or tfp file." )(
-      "logs-trace", boost::program_options::value<std::string>(), "Output the execution logs as a chrome trace. Must be a json file." )(
+      "trace-chrome", boost::program_options::value<std::string>(),
+      "Output the execution logs as a chrome trace. Must be a json file." )(
       "dump-plan", boost::program_options::bool_switch(), "Write execution plan to files named {name}.dot." )(
-      "fast-calibrate", boost::program_options::bool_switch(), "Calibrate CPUCrunching on smaller sample." );
+      "fast-calibrate", boost::program_options::bool_switch(), "Calibrate CPUCrunching on smaller sample." )(
+      "disable-logging", boost::program_options::bool_switch(), "Disable printing logging information." );
 
   boost::program_options::options_description cmdline_options{ "Options" };
   cmdline_options.add( desc ).add( desc_runtime ).add( desc_trace );
@@ -97,19 +105,24 @@ boost::program_options::variables_map parse_arguments( int argc, char** argv ) {
   return vm;
 }
 
-int main( int argc, char** argv ) {
-  auto vm = parse_arguments( argc, argv );
+void enable_logging( bool enable ) {
+  auto min_severity = enable ? boost::log::trivial::info : boost::log::trivial::error;
+  boost::log::core::get()->set_filter( boost::log::trivial::severity >= min_severity );
+}
 
-  auto fast_calibrate = vm["fast-calibrate"].as<bool>();
-  auto slots          = vm["slots"].as<unsigned int>();
-  auto threads        = vm["threads"].as<unsigned int>();
-  auto max_events     = vm["event-count"].as<unsigned int>();
-  auto workload_name  = vm["name"].as<std::string>();
-  auto dag            = mockup::read_df( vm["dfg"].as<std::string>() );
+int main( int argc, char** argv ) {
+  const auto vm = parse_arguments( argc, argv );
+  enable_logging( !vm["disable-logging"].as<bool>() );
+  const auto fast_calibrate = vm["fast-calibrate"].as<bool>();
+  const auto slots          = vm["slots"].as<unsigned int>();
+  const auto threads        = vm["threads"].as<unsigned int>();
+  const auto max_events     = vm["event-count"].as<unsigned int>();
+  const auto workload_name  = vm["name"].as<std::string>();
+  const auto dag            = mockup::read_df( vm["dfg"].as<std::string>() );
 
   auto executor        = tf::Executor{ threads };
-  auto chrome_observer = vm.count( "logs-trace" ) ? executor.make_observer<tf::ChromeObserver>() : nullptr;
-  auto tfp_observer = vm.count( "logs-tfp" ) ? executor.make_observer<tf::TFProfObserver>() : nullptr;
+  auto chrome_observer = vm.count( "trace-chrome" ) ? executor.make_observer<tf::ChromeObserver>() : nullptr;
+  auto tfp_observer    = vm.count( "trace-tfp" ) ? executor.make_observer<tf::TFProfObserver>() : nullptr;
 
   auto task_builder = mockup::CPUCruncherBuilder{};
   std::cout << "Calibrating CPUCrunching" << std::endl;
@@ -128,35 +141,55 @@ int main( int argc, char** argv ) {
                   if ( pf.token() >= max_events ) {
                     pf.stop();
                   } else {
-                    std::cout << "Begin event: " << pf.token() << std::endl;
+                    BOOST_LOG_TRIVIAL( info ) << "Begin event: " << pf.token();
                   }
                 } },
       tf::Pipe{ tf::PipeType::PARALLEL,
                 [&executor, &core_flows]( tf::Pipeflow& pf ) { executor.corun( core_flows[pf.line()] ); } },
       tf::Pipe{ tf::PipeType::PARALLEL,
-                []( tf::Pipeflow& pf ) { std::cout << "End event: " << pf.token() << std::endl; } } };
+                []( tf::Pipeflow& pf ) { BOOST_LOG_TRIVIAL( info ) << "End event: " << pf.token(); } } };
 
   auto master_flow = tf::Taskflow{ workload_name };
 
   auto core_task = master_flow.composed_of( pipeline ).name( workload_name + "-pipeline" );
   auto init_task =
-      master_flow.emplace( []() { std::cout << "Begin processing" << std::endl; } ).name( "Begin processing" );
+      master_flow.emplace( []() { BOOST_LOG_TRIVIAL( info ) << "Begin processing"; } ).name( "Begin processing" );
   auto final_task =
-      master_flow.emplace( []() { std::cout << "End processing" << std::endl; } ).name( "End processing" );
+      master_flow.emplace( []() { BOOST_LOG_TRIVIAL( info ) << "End processing"; } ).name( "End processing" );
   init_task.precede( core_task );
   core_task.precede( final_task );
 
   if ( !vm["dry-run"].as<bool>() ) {
-    executor.run( master_flow ).wait();
+    const auto trials  = vm["trials"].as<unsigned int>();
+    auto       timings = std::vector<double>( trials );
+    for ( auto i = 0; i < trials; ++i ) {
+      auto start_time = std::chrono::high_resolution_clock::now();
+      executor.run( master_flow ).wait();
+      auto end_time        = std::chrono::high_resolution_clock::now();
+      auto elapsed_seconds = std::chrono::duration<double>( end_time - start_time ).count();
+      pipeline.reset();
+      std::cout << "Execution time: " << elapsed_seconds << " s (Throughput: " << max_events / elapsed_seconds
+                << " evt/s)" << std::endl;
+      timings[i] = elapsed_seconds;
+    }
+    if ( vm.count( "save-timing" ) ) {
+      auto timing_file_name = vm["save-timing"].as<std::string>();
+      auto timing_file      = std::ofstream{ timing_file_name };
+      timing_file << "time,throughput,threads,event_count,max_concurrent" << std::endl;
+      for ( const auto& t : timings ) {
+        timing_file << t << "," << max_events / t << "," << threads << "," << max_events << "," << slots << std::endl;
+      }
+      std::cout << "Timing results saved to file: \"" << timing_file_name << '\"' << std::endl;
+    }
 
     if ( chrome_observer ) {
-      auto trace_file_name = vm["logs-trace"].as<std::string>();
+      auto trace_file_name = vm["trace-chrome"].as<std::string>();
       auto traceFile       = std::ofstream( trace_file_name );
       chrome_observer->dump( traceFile );
       std::cout << "Perfetto trace written to file: \"" << trace_file_name << '\"' << std::endl;
     }
     if ( tfp_observer ) {
-      auto trace_file_name = vm["logs-tfp"].as<std::string>();
+      auto trace_file_name = vm["trace-tfp"].as<std::string>();
       auto traceFile       = std::ofstream( trace_file_name );
       tfp_observer->dump( traceFile );
       std::cout << "TFProf trace written to file: \"" << trace_file_name << '\"' << std::endl;
