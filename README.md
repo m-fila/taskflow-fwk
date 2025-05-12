@@ -17,7 +17,7 @@ Building:
 ```
 git clone
 cd taskflow-fwk
-git module update --init --recursive
+git submodule update --init --recursive
 mkdir build && cd build
 cmake ..
 make
