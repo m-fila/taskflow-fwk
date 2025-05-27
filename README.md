@@ -28,5 +28,5 @@ make
 Running demonstrator:
 
 ```
-./taskflow_demo --threads 6 --slots 4 --event-count 4 --logs-trace trace.json --dfg ../data/ATLAS/q449/df.graphml
+./taskflow_demo --threads 6 --slots 4 --event-count 4 --trace-chrome trace.json --dfg ../data/ATLAS/q449/df.graphml
 ```
