@@ -12,7 +12,28 @@ find_package(Catch2 3 REQUIRED)
 include(CTest)
 include(Catch)
 
-add_subdirectory(deps)
+
+option(USE_SYSTEM_LIBS "Use system libraries by default" FALSE)
+
+option(BUILD_TASKFLOW "Build the taskflow sources included in this project" TRUE)
+
+if (USE_SYSTEM_LIBS)
+  set(USE_SYSTEM_TASKFLOW_DEFAULT ON)
+else()
+  set(USE_SYSTEM_TASKFLOW_DEFAULT OFF)
+endif()
+option(USE_SYSTEM_TASKFLOW
+  "Pick up an existing installation of taskflow from the build environment"
+  ${USE_SYSTEM_TASKFLOW_DEFAULT})
+unset(USE_SYSTEM_TASKFLOW_DEFAULT)
+
+if(BUILD_TASKFLOW)
+  if(USE_SYSTEM_TASKFLOW)
+    find_package(taskflow REQUIRED)
+  else()
+    add_subdirectory(extern/taskflow)
+  endif()
+endif()
 
 set(sources
     src/graph_representation.cpp
@@ -28,7 +49,7 @@ target_include_directories(
 target_link_libraries(mockup PUBLIC Boost::graph)
 
 add_executable(taskflow_demo bin/taskflow_demo.cpp)
-target_link_libraries(taskflow_demo PRIVATE Boost::program_options taskflow mockup Boost::log)
+target_link_libraries(taskflow_demo PRIVATE Boost::program_options Taskflow::Taskflow mockup Boost::log)
 
 add_executable(mockup_tests tests/read_graph.test.cpp)
 target_link_libraries(mockup_tests PRIVATE mockup Catch2::Catch2WithMain)
