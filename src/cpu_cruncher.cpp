@@ -51,7 +51,7 @@ namespace mockup {
 
     // Fool Compiler optimisations:
     for ( unsigned int prime_index = 0; prime_index < primes_size; prime_index++ )
-      if ( primes[prime_index] == 4 ) ++fool;
+      if ( primes[prime_index] == 4 ) fool = fool + 1;
 
     delete[] primes;
   }
@@ -169,11 +169,8 @@ namespace mockup {
 
   void CPUCruncher::operator()() {
 
-    auto distribution =
-        std::normal_distribution<runtime_duration::rep>{ m_duration_average.count(), m_duration_stddev.count() };
-    auto       random_duration = runtime_duration( std::abs( distribution( m_random ) ) );
-    const auto sleep_duration  = m_sleep_fraction * random_duration;
-    const auto work_duration   = ( 1 - m_sleep_fraction ) * random_duration;
+    const auto sleep_duration  = m_sleep_fraction * m_duration_average;
+    const auto work_duration   = ( 1 - m_sleep_fraction ) * m_duration_average;
     if ( m_sleep_fraction > 0 ) { std::this_thread::sleep_for( sleep_duration ); }
     if ( m_sleep_fraction < 1 ) { m_cruncher->crunch( work_duration ); }
   }
