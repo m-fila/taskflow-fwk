@@ -29,7 +29,7 @@ unset(USE_SYSTEM_TASKFLOW_DEFAULT)
 
 if(BUILD_TASKFLOW)
   if(USE_SYSTEM_TASKFLOW)
-    find_package(taskflow REQUIRED)
+    find_package(taskflow 4.0.0 REQUIRED)
   else()
     add_subdirectory(extern/taskflow)
   endif()
