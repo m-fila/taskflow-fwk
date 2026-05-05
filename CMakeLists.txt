@@ -6,6 +6,13 @@ project(
   VERSION 0.1.0
   LANGUAGES CXX)
 
+set(CMAKE_CXX_STANDARD 20 CACHE STRING "")
+set(CMAKE_CXX_EXTENSIONS FALSE CACHE BOOL "Disable C++ extensions" )
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(CMAKE_CXX_STANDARD LESS 20)
+  message(FATAL_ERROR "Unsupported C++ standard: ${CMAKE_CXX_STANDARD}. Must be at least C++20.")
+endif()
+
 find_package(Boost REQUIRED COMPONENTS graph program_options log)
 
 find_package(Catch2 3 REQUIRED)
