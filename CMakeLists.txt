@@ -15,11 +15,6 @@ endif()
 
 find_package(Boost REQUIRED COMPONENTS graph program_options log)
 
-find_package(Catch2 3 REQUIRED)
-include(CTest)
-include(Catch)
-
-
 option(USE_SYSTEM_LIBS "Use system libraries by default" FALSE)
 
 option(BUILD_TASKFLOW "Build the taskflow sources included in this project" TRUE)
@@ -58,7 +53,10 @@ target_link_libraries(mockup PUBLIC Boost::graph)
 add_executable(taskflow_demo bin/taskflow_demo.cpp)
 target_link_libraries(taskflow_demo PRIVATE Boost::program_options Taskflow::Taskflow mockup Boost::log)
 
-add_executable(mockup_tests tests/read_graph.test.cpp)
-target_link_libraries(mockup_tests PRIVATE mockup Catch2::Catch2WithMain)
 
-catch_discover_tests(mockup_tests)
+include(CTest)
+if(BUILD_TESTING)
+  enable_testing()
+  add_subdirectory(tests)
+endif()
+
