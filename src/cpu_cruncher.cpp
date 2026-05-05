@@ -51,7 +51,7 @@ namespace mockup {
 
     // Fool Compiler optimisations:
     for ( unsigned int prime_index = 0; prime_index < primes_size; prime_index++ )
-      if ( primes[prime_index] == 4 ) ++fool;
+      if ( primes[prime_index] == 4 ) fool = fool + 1;
 
     delete[] primes;
   }
